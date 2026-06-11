@@ -1,0 +1,22 @@
+# Dependencies & build output (rebuilt by npm install / npm run build)
+**/node_modules/
+**/dist/
+**/.next/
+**/.turbo/
+**/coverage/
+**/*.tsbuildinfo
+
+# Env — NEVER commit real secrets. .env.example is the only env file tracked.
+.env
+.env.*
+!.env.example
+
+# Orchestrator runtime artifacts (agent worktrees, etc.)
+.orchestrator/
+app.db
+
+# OS / editor
+.DS_Store
+*.log
+.idea/
+.vscode/

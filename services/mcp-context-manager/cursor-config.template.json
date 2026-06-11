@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "mcp-context-manager": {
+      "command": "docker",
+      "args": ["exec", "-i", "mcp-context-manager", "node", "dist/server.js", "--stdio-only"],
+      "disabled": false,
+      "autoApprove": ["*"]
+    }
+  }
+}

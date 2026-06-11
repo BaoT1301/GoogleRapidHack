@@ -1,0 +1,70 @@
+{
+  "name": "@repo/data-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared data layer (Mongo models, gateways, vault, settings helpers) imported by BOTH the orchestrator and the standalone auth-bff service. Neither service owns the other; both depend on this neutral package.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./db/client": {
+      "types": "./dist/db/client.d.ts",
+      "default": "./dist/db/client.js"
+    },
+    "./db/models": {
+      "types": "./dist/db/models/index.d.ts",
+      "default": "./dist/db/models/index.js"
+    },
+    "./db/models/*": {
+      "types": "./dist/db/models/*.d.ts",
+      "default": "./dist/db/models/*.js"
+    },
+    "./secrets/vault": {
+      "types": "./dist/secrets/vault.d.ts",
+      "default": "./dist/secrets/vault.js"
+    },
+    "./runtime/kiro-tools": {
+      "types": "./dist/runtime/kiro-tools.d.ts",
+      "default": "./dist/runtime/kiro-tools.js"
+    },
+    "./runtime/cli-tool-catalogs": {
+      "types": "./dist/runtime/cli-tool-catalogs.d.ts",
+      "default": "./dist/runtime/cli-tool-catalogs.js"
+    },
+    "./runtime/secret-redaction": {
+      "types": "./dist/runtime/secret-redaction.d.ts",
+      "default": "./dist/runtime/secret-redaction.js"
+    },
+    "./templates/seed": {
+      "types": "./dist/templates/seed.d.ts",
+      "default": "./dist/templates/seed.js"
+    },
+    "./gateways/*": {
+      "types": "./dist/gateways/*.d.ts",
+      "default": "./dist/gateways/*.js"
+    },
+    "./storage/asset-storage": {
+      "types": "./dist/storage/asset-storage.d.ts",
+      "default": "./dist/storage/asset-storage.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@google-cloud/storage": "7.14.0",
+    "@trpc/server": "^11.0.0",
+    "mongoose": "^8.4.0",
+    "ulid": "^2.3.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.41",
+    "typescript": "5.9.3"
+  }
+}

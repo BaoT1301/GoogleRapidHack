@@ -1,0 +1,31 @@
+{
+  "name": "mcp-context-manager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/server.ts",
+    "start": "node dist/server.js",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.18.0",
+    "chokidar": "^4.0.3",
+    "fast-glob": "^3.3.3",
+    "graphology": "^0.26.0",
+    "tree-sitter": "^0.25.0",
+    "tree-sitter-python": "^0.25.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "eslint": "^9.38.0",
+    "fast-check": "^4.7.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.8"
+  }
+}

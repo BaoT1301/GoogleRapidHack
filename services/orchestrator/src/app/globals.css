@@ -1,0 +1,149 @@
+@import "tailwindcss";
+
+/* ── Theme-aware design tokens ────────────────────────────────────────────────
+ * Off-black (dark) ⇄ warm off-white (light) surfaces · single violet accent ·
+ * one radius scale · hairline borders. Governed by high-end-visual-design +
+ * minimalist-ui.
+ *
+ * How theming works (Tailwind v4):
+ *   • The raw palette lives in plain CSS variables scoped to `:root`
+ *     (= dark, the default) and `[data-theme="light"]`.
+ *   • `@theme inline` maps each Tailwind color token to one of those variables
+ *     by reference, so utilities compile to `var(--…)` and re-resolve whenever
+ *     the active `data-theme` on <html> changes — no rebuild, no flash. */
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface: #08090c; /* app canvas */
+  --panel: #0e1016; /* sidebars / panels */
+  --panel-raised: #14171f; /* cards inside panels */
+  --overlay: #181c26; /* dialogs / popovers */
+
+  --border: rgba(255, 255, 255, 0.08); /* hairline */
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --content: #e7e9ee; /* primary text */
+  --muted: #9aa1ad; /* secondary text */
+  --faint: #626877; /* tertiary / disabled */
+
+  --accent: #8b7cff; /* single accent */
+  --accent-strong: #a596ff;
+  --accent-soft: rgba(139, 124, 255, 0.14);
+  --on-accent: #0b0a16; /* text/icons on top of the accent fill */
+
+  --danger: #ef6b5c;
+  --success: #46b85f;
+  --warning: #d8a72b;
+
+  /* Interactive overlays — tint the surface beneath without a solid fill.
+   * In dark mode these are translucent white; in light mode, translucent
+   * black (see the light block). Replaces ad-hoc bg-white/x classes. */
+  --hover: rgba(255, 255, 255, 0.05);
+  --active: rgba(255, 255, 255, 0.1);
+  --raised: rgba(255, 255, 255, 0.02);
+  --elevated: rgba(255, 255, 255, 0.06);
+  --scrim: rgba(0, 0, 0, 0.7); /* modal backdrop */
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --surface: #f6f6f4; /* warm off-white canvas */
+  --panel: #ffffff;
+  --panel-raised: #ffffff;
+  --overlay: #ffffff;
+
+  --border: rgba(17, 18, 22, 0.1);
+  --border-strong: rgba(17, 18, 22, 0.18);
+
+  --content: #1a1c22;
+  --muted: #565b66;
+  --faint: #888d99;
+
+  --accent: #6c5ce0; /* darkened for AA contrast on light surfaces */
+  --accent-strong: #5a48d6;
+  --accent-soft: rgba(108, 92, 224, 0.12);
+  --on-accent: #ffffff;
+
+  --danger: #cf3d31;
+  --success: #2f9e4a;
+  --warning: #a9760a;
+
+  --hover: rgba(17, 18, 22, 0.04);
+  --active: rgba(17, 18, 22, 0.08);
+  --raised: rgba(17, 18, 22, 0.02);
+  --elevated: rgba(17, 18, 22, 0.05);
+  --scrim: rgba(15, 17, 21, 0.4);
+}
+
+@theme inline {
+  --color-surface: var(--surface);
+  --color-panel: var(--panel);
+  --color-panel-raised: var(--panel-raised);
+  --color-overlay: var(--overlay);
+
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-content: var(--content);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+
+  --color-hover: var(--hover);
+  --color-active: var(--active);
+  --color-raised: var(--raised);
+  --color-elevated: var(--elevated);
+  --color-scrim: var(--scrim);
+}
+
+@theme {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+
+  --radius-xs: 0.4rem;
+  --radius-sm: 0.625rem;
+  --radius-md: 0.875rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.75rem;
+}
+
+@layer base {
+  body {
+    background: var(--surface);
+    color: var(--content);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--accent) 35%, transparent);
+  }
+  /* Hairline, low-contrast scrollbars to match the editorial surface. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}
+
+/* Accessibility: collapse all motion when the user asks for it. Pairs with
+ * <MotionConfig reducedMotion="user"> for the Motion-driven animations. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

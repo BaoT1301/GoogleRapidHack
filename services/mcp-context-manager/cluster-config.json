@@ -1,0 +1,5 @@
+{
+  "clusters": [
+    { "id": "root", "path": "./", "label": "Workspace", "color": "#4A90D9" }
+  ]
+}

@@ -1,0 +1,1808 @@
+openapi: 3.1.0
+info:
+  title: MCP Context Manager API
+  version: 1.0.0
+  description: |
+    Real-time code structure analysis and dependency tracking API.
+    Provides dependency graph export, function context, file dependents,
+    symbol references, and advanced analytical query tools.
+  contact:
+    name: MCP Context Manager
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3001
+    description: Local development (Docker internal)
+  - url: http://mcp-context-manager:3001
+    description: Docker network internal
+
+tags:
+  - name: Health
+    description: Service health check
+  - name: Graph Export
+    description: Full dependency graph export with geographic mapping
+  - name: Function Context
+    description: Function neighborhood subgraph
+  - name: File Dependents
+    description: File dependency analysis
+  - name: Symbol References
+    description: Cross-file symbol reference tracking
+  - name: Callers
+    description: Reverse call graph (who calls this function)
+  - name: Call Chain
+    description: Directed call subgraph (upstream/downstream)
+  - name: Dead Code
+    description: Unreferenced symbol detection
+  - name: Hotspots
+    description: High fan-in symbols (most referenced)
+  - name: Impact Analysis
+    description: File change blast radius analysis
+  - name: Module Coupling
+    description: Inter-file coupling metrics
+  - name: Class Hierarchy
+    description: Inheritance tree traversal
+  - name: Search
+    description: Symbol search (fuzzy and regex)
+  - name: Circular Dependencies
+    description: Import cycle detection
+  - name: Complexity Metrics
+    description: Per-symbol complexity scoring
+  - name: Change Risk
+    description: Multi-file change risk assessment
+  - name: SSE Events
+    description: Server-Sent Events for real-time file change notifications
+
+paths:
+  /api/v1/health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Returns service health status. Also available at /api/health (alias).
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is healthy or degraded. Always HTTP 200 — inspect `status` field.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      status:
+                        type: string
+                        enum: [ok]
+                  - type: object
+                    properties:
+                      status:
+                        type: string
+                        enum: [degraded]
+                      reasons:
+                        type: array
+                        items:
+                          type: string
+              examples:
+                healthy:
+                  value:
+                    status: ok
+                degraded:
+                  value:
+                    status: degraded
+                    reasons: ["indexed 0 files"]
+
+  /api/v1/diag:
+    get:
+      tags: [Health]
+      summary: Diagnostics snapshot
+      description: Returns resolved workspace root, glob patterns, ignore patterns, file counts, cluster hits, and degraded state. Used by `./mcp.sh doctor` and CI health checks.
+      operationId: getDiag
+      responses:
+        "200":
+          description: Always 200. Inspect `degraded` field for health state.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [workspaceRoot, resolvedPythonGlobs, resolvedTsGlobs, resolvedIgnores, fileCount, clusterHits, degraded, reasons]
+                properties:
+                  workspaceRoot:
+                    type: string
+                  resolvedPythonGlobs:
+                    type: array
+                    items:
+                      type: string
+                  resolvedTsGlobs:
+                    type: array
+                    items:
+                      type: string
+                  resolvedIgnores:
+                    type: array
+                    items:
+                      type: string
+                  fileCount:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      python:
+                        type: integer
+                      ts:
+                        type: integer
+                  clusterHits:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                  degraded:
+                    type: boolean
+                  reasons:
+                    type: array
+                    items:
+                      type: string
+              example:
+                workspaceRoot: /workspace
+                resolvedPythonGlobs: ["**/*.py"]
+                resolvedTsGlobs: ["**/*.{ts,tsx,js,jsx}"]
+                resolvedIgnores: ["**/node_modules/**", "**/dist/**"]
+                fileCount:
+                  total: 42
+                  python: 10
+                  ts: 32
+                clusterHits:
+                  frontend: 18
+                  backend: 24
+                degraded: false
+                reasons: []
+
+  /api/v1/mcp/graph:
+    get:
+      tags: [Graph Export]
+      summary: Export dependency graph
+      description: |
+        Exports the full dependency graph with nodes (files, functions, classes, variables)
+        and edges (imports, calls, reads, writes). Nodes include geographic coordinates
+        and cluster assignments for visualization.
+      operationId: exportGraph
+      parameters:
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [repo, file, symbol]
+            default: repo
+          description: Graph scope
+        - name: file_path
+          in: query
+          schema:
+            type: string
+          description: Required when scope is 'file'
+        - name: symbol_qualified_name
+          in: query
+          schema:
+            type: string
+          description: Required when scope is 'symbol'
+        - name: max_nodes
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Max nodes (0 = unlimited)
+        - name: max_edges
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Max edges (0 = unlimited)
+      responses:
+        "200":
+          description: Graph exported successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphExportResponse"
+              example:
+                nodes:
+                  - id: "file:backend/app/main.py"
+                    type: file
+                    label: main.py
+                    filePath: backend/app/main.py
+                    lat: 35.6
+                    lng: 139.7
+                    clusterId: backend
+                edges:
+                  - source: "file:backend/app/main.py"
+                    target: "file:backend/app/database.py"
+                    type: imports
+                    isCrossCluster: false
+                meta:
+                  nodeCount: 150
+                  edgeCount: 300
+                clusterMeta:
+                  - id: backend
+                    path: "backend/"
+                    label: Backend Services
+                    color: "#4A90E2"
+
+  /api/v1/mcp/clusters:
+    get:
+      tags: [Graph Export]
+      summary: Get cluster configuration
+      description: Returns the current cluster groupings used for geographic mapping.
+      operationId: getClusters
+      responses:
+        "200":
+          description: Cluster configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clusters:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Cluster"
+
+  /api/v1/mcp/function/{functionName}:
+    get:
+      tags: [Function Context]
+      summary: Get function context
+      description: Returns the neighborhood subgraph around a function (callers, callees, related files).
+      operationId: getFunctionContext
+      parameters:
+        - name: functionName
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Target function name
+        - name: file_path
+          in: query
+          schema:
+            type: string
+          description: File path to disambiguate
+        - name: max_hops
+          in: query
+          schema:
+            type: integer
+            default: 2
+          description: Max hops from center node
+        - name: max_nodes
+          in: query
+          schema:
+            type: integer
+            default: 150
+          description: Max nodes to return
+      responses:
+        "200":
+          description: Function context retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FunctionContextResponse"
+              example:
+                centerNode:
+                  id: "func:main:create_app"
+                  type: function
+                  label: create_app
+                  filePath: backend/app/main.py
+                nodes: []
+                edges: []
+                relatedFiles: ["backend/app/database.py"]
+                truncated: false
+
+  /api/v1/mcp/function:
+    post:
+      tags: [Function Context]
+      summary: Get function context (POST)
+      operationId: getFunctionContextPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [function_name]
+              properties:
+                function_name:
+                  type: string
+                file_path:
+                  type: string
+                max_hops:
+                  type: integer
+                  default: 2
+                max_nodes:
+                  type: integer
+                  default: 150
+      responses:
+        "200":
+          description: Function context retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FunctionContextResponse"
+
+  /api/v1/mcp/file/{filePath}/dependents:
+    get:
+      tags: [File Dependents]
+      summary: Get file dependents
+      description: Returns files that depend on or are depended upon by the specified file.
+      operationId: getFileDependents
+      parameters:
+        - name: filePath
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Target file path (URL-encoded)
+        - name: direction
+          in: query
+          schema:
+            type: string
+            enum: [incoming, outgoing, both]
+            default: incoming
+        - name: depth
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: max_files
+          in: query
+          schema:
+            type: integer
+            default: 200
+      responses:
+        "200":
+          description: File dependents retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileDependentsResponse"
+
+  /api/v1/mcp/dependents:
+    post:
+      tags: [File Dependents]
+      summary: Get file dependents (POST)
+      operationId: getFileDependentsPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [file_path]
+              properties:
+                file_path:
+                  type: string
+                direction:
+                  type: string
+                  enum: [incoming, outgoing, both]
+                  default: incoming
+                depth:
+                  type: integer
+                  default: 1
+                max_files:
+                  type: integer
+                  default: 200
+      responses:
+        "200":
+          description: File dependents retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileDependentsResponse"
+
+  /api/v1/mcp/symbol/{symbolName}/references:
+    get:
+      tags: [Symbol References]
+      summary: Get symbol references
+      description: Returns all references to a symbol across the codebase.
+      operationId: getSymbolReferences
+      parameters:
+        - name: symbolName
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Symbol qualified name
+        - name: include_reads
+          in: query
+          schema:
+            type: boolean
+            default: true
+        - name: include_writes
+          in: query
+          schema:
+            type: boolean
+            default: true
+        - name: include_calls
+          in: query
+          schema:
+            type: boolean
+            default: true
+        - name: max_results
+          in: query
+          schema:
+            type: integer
+            default: 300
+      responses:
+        "200":
+          description: Symbol references retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SymbolReferencesResponse"
+
+  /api/v1/mcp/references:
+    post:
+      tags: [Symbol References]
+      summary: Get symbol references (POST)
+      operationId: getSymbolReferencesPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [symbol_qualified_name]
+              properties:
+                symbol_qualified_name:
+                  type: string
+                include_reads:
+                  type: boolean
+                  default: true
+                include_writes:
+                  type: boolean
+                  default: true
+                include_calls:
+                  type: boolean
+                  default: true
+                max_results:
+                  type: integer
+                  default: 300
+      responses:
+        "200":
+          description: Symbol references retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SymbolReferencesResponse"
+
+  /api/v1/mcp/callers/{functionName}:
+    get:
+      tags: [Callers]
+      summary: Get callers (reverse call graph)
+      description: Returns all functions that call the specified function, traversing up to max_depth levels.
+      operationId: getCallers
+      parameters:
+        - name: functionName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: file_path
+          in: query
+          schema:
+            type: string
+        - name: max_depth
+          in: query
+          schema:
+            type: integer
+            default: 3
+            minimum: 1
+            maximum: 10
+        - name: max_results
+          in: query
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Callers retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallersResponse"
+        "504":
+          description: Query timeout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/mcp/callers:
+    post:
+      tags: [Callers]
+      summary: Get callers (POST)
+      operationId: getCallersPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [function_name]
+              properties:
+                function_name:
+                  type: string
+                file_path:
+                  type: string
+                max_depth:
+                  type: integer
+                  default: 3
+                max_results:
+                  type: integer
+                  default: 100
+            example:
+              function_name: create_app
+              file_path: backend/app/main.py
+              max_depth: 3
+              max_results: 100
+      responses:
+        "200":
+          description: Callers retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallersResponse"
+        "400":
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/mcp/call-chain/{functionName}:
+    get:
+      tags: [Call Chain]
+      summary: Get call chain (directed subgraph)
+      description: Returns the upstream and/or downstream call chain for a function.
+      operationId: getCallChain
+      parameters:
+        - name: functionName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: file_path
+          in: query
+          schema:
+            type: string
+        - name: direction
+          in: query
+          schema:
+            type: string
+            enum: [upstream, downstream, both]
+            default: both
+        - name: max_depth
+          in: query
+          schema:
+            type: integer
+            default: 5
+            minimum: 1
+            maximum: 10
+        - name: max_nodes
+          in: query
+          schema:
+            type: integer
+            default: 200
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Call chain retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallChainResponse"
+        "504":
+          description: Query timeout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/mcp/call-chain:
+    post:
+      tags: [Call Chain]
+      summary: Get call chain (POST)
+      operationId: getCallChainPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [function_name]
+              properties:
+                function_name:
+                  type: string
+                file_path:
+                  type: string
+                direction:
+                  type: string
+                  enum: [upstream, downstream, both]
+                  default: both
+                max_depth:
+                  type: integer
+                  default: 5
+                max_nodes:
+                  type: integer
+                  default: 200
+      responses:
+        "200":
+          description: Call chain retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallChainResponse"
+        "400":
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/mcp/dead-code:
+    get:
+      tags: [Dead Code]
+      summary: Get dead code
+      description: Detects unreferenced symbols (functions/classes with zero inbound edges).
+      operationId: getDeadCode
+      parameters:
+        - name: file_pattern
+          in: query
+          schema:
+            type: string
+          description: "Glob pattern (e.g., backend/**)"
+        - name: language
+          in: query
+          schema:
+            type: string
+            enum: [python, typescript]
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [function, class]
+        - name: max_results
+          in: query
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Dead code analysis complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeadCodeResponse"
+        "400":
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Dead Code]
+      summary: Get dead code (POST)
+      operationId: getDeadCodePost
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                file_pattern:
+                  type: string
+                language:
+                  type: string
+                  enum: [python, typescript]
+                kind:
+                  type: string
+                  enum: [function, class]
+                max_results:
+                  type: integer
+                  default: 100
+      responses:
+        "200":
+          description: Dead code analysis complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeadCodeResponse"
+
+  /api/v1/mcp/hotspots:
+    get:
+      tags: [Hotspots]
+      summary: Get hotspots
+      description: Returns the top-N most-referenced symbols (highest fan-in).
+      operationId: getHotspots
+      parameters:
+        - name: top_n
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [function, class, variable]
+        - name: language
+          in: query
+          schema:
+            type: string
+            enum: [python, typescript]
+        - name: file_pattern
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Hotspots retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HotspotsResponse"
+    post:
+      tags: [Hotspots]
+      summary: Get hotspots (POST)
+      operationId: getHotspotsPost
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                top_n:
+                  type: integer
+                  default: 20
+                kind:
+                  type: string
+                  enum: [function, class, variable]
+                language:
+                  type: string
+                  enum: [python, typescript]
+                file_pattern:
+                  type: string
+                include_edge_types:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Hotspots retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HotspotsResponse"
+
+  /api/v1/mcp/impact/{filePath}:
+    get:
+      tags: [Impact Analysis]
+      summary: Get impact analysis
+      description: Analyzes the blast radius of changes to a file — which files and symbols are affected.
+      operationId: getImpactAnalysis
+      parameters:
+        - name: filePath
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Source file path (URL-encoded)
+        - name: max_depth
+          in: query
+          schema:
+            type: integer
+            default: 3
+            minimum: 1
+            maximum: 5
+        - name: max_files
+          in: query
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Impact analysis complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImpactAnalysisResponse"
+        "400":
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/mcp/impact:
+    post:
+      tags: [Impact Analysis]
+      summary: Get impact analysis (POST)
+      operationId: getImpactAnalysisPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [file_path]
+              properties:
+                file_path:
+                  type: string
+                max_depth:
+                  type: integer
+                  default: 3
+                max_files:
+                  type: integer
+                  default: 100
+      responses:
+        "200":
+          description: Impact analysis complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImpactAnalysisResponse"
+
+  /api/v1/mcp/coupling/{filePathA}/{filePathB}:
+    get:
+      tags: [Module Coupling]
+      summary: Get module coupling
+      description: Computes coupling metrics between two files (shared imports, shared symbols, direct/transitive edges).
+      operationId: getModuleCoupling
+      parameters:
+        - name: filePathA
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: filePathB
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: max_depth
+          in: query
+          schema:
+            type: integer
+            default: 2
+      responses:
+        "200":
+          description: Coupling metrics retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModuleCouplingResponse"
+
+  /api/v1/mcp/coupling:
+    post:
+      tags: [Module Coupling]
+      summary: Get module coupling (POST)
+      operationId: getModuleCouplingPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [file_path_a, file_path_b]
+              properties:
+                file_path_a:
+                  type: string
+                file_path_b:
+                  type: string
+                max_depth:
+                  type: integer
+                  default: 2
+      responses:
+        "200":
+          description: Coupling metrics retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModuleCouplingResponse"
+        "400":
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/mcp/class-hierarchy/{className}:
+    get:
+      tags: [Class Hierarchy]
+      summary: Get class hierarchy
+      description: Traverses the inheritance tree for a class (ancestors, descendants, or both).
+      operationId: getClassHierarchy
+      parameters:
+        - name: className
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: file_path
+          in: query
+          schema:
+            type: string
+        - name: direction
+          in: query
+          schema:
+            type: string
+            enum: [ancestors, descendants, both]
+            default: both
+        - name: max_depth
+          in: query
+          schema:
+            type: integer
+            default: 5
+            minimum: 1
+            maximum: 10
+      responses:
+        "200":
+          description: Class hierarchy retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClassHierarchyResponse"
+        "400":
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/mcp/class-hierarchy:
+    post:
+      tags: [Class Hierarchy]
+      summary: Get class hierarchy (POST)
+      operationId: getClassHierarchyPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [class_name]
+              properties:
+                class_name:
+                  type: string
+                file_path:
+                  type: string
+                direction:
+                  type: string
+                  enum: [ancestors, descendants, both]
+                  default: both
+                max_depth:
+                  type: integer
+                  default: 5
+      responses:
+        "200":
+          description: Class hierarchy retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClassHierarchyResponse"
+
+  /api/v1/mcp/search:
+    get:
+      tags: [Search]
+      summary: Search symbols
+      description: Fuzzy or regex search for symbols across the codebase.
+      operationId: searchSymbols
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search string (fuzzy match or regex)
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [file, module, function, class, variable, external]
+        - name: language
+          in: query
+          schema:
+            type: string
+            enum: [python, typescript]
+        - name: file_pattern
+          in: query
+          schema:
+            type: string
+        - name: use_regex
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: max_results
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+        "400":
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Search]
+      summary: Search symbols (POST)
+      operationId: searchSymbolsPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+                kind:
+                  type: string
+                language:
+                  type: string
+                  enum: [python, typescript]
+                file_pattern:
+                  type: string
+                use_regex:
+                  type: boolean
+                  default: false
+                max_results:
+                  type: integer
+                  default: 50
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+
+  /api/v1/mcp/circular-deps:
+    get:
+      tags: [Circular Dependencies]
+      summary: Get circular dependencies
+      description: Detects circular import chains using iterative DFS on the file-level import graph.
+      operationId: getCircularDeps
+      parameters:
+        - name: file_pattern
+          in: query
+          schema:
+            type: string
+        - name: language
+          in: query
+          schema:
+            type: string
+            enum: [python, typescript]
+        - name: max_cycles
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 200
+        - name: max_depth
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 50
+      responses:
+        "200":
+          description: Circular dependencies detected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CircularDepsResponse"
+              example:
+                cycles:
+                  - chain: ["src/a.py", "src/b.py", "src/a.py"]
+                    length: 2
+                totalFilesScanned: 42
+                truncated: false
+        "400":
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Circular Dependencies]
+      summary: Get circular dependencies (POST)
+      operationId: getCircularDepsPost
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                file_pattern:
+                  type: string
+                language:
+                  type: string
+                  enum: [python, typescript]
+                max_cycles:
+                  type: integer
+                  default: 50
+                max_depth:
+                  type: integer
+                  default: 20
+      responses:
+        "200":
+          description: Circular dependencies detected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CircularDepsResponse"
+
+  /api/v1/mcp/complexity:
+    get:
+      tags: [Complexity Metrics]
+      summary: Get complexity metrics
+      description: Computes per-symbol complexity (fan-in, fan-out, max call-chain depth).
+      operationId: getComplexityMetrics
+      parameters:
+        - name: file_path
+          in: query
+          schema:
+            type: string
+          description: Glob pattern to filter by file path
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [function, class, file]
+        - name: language
+          in: query
+          schema:
+            type: string
+            enum: [python, typescript]
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            enum: [fan_in, fan_out, depth, total]
+            default: total
+        - name: max_results
+          in: query
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Complexity metrics computed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplexityMetricsResponse"
+              example:
+                metrics:
+                  - node:
+                      id: "func:main:create_app"
+                      type: function
+                      label: create_app
+                      filePath: backend/app/main.py
+                    fanIn: 5
+                    fanOut: 3
+                    maxDepth: 2
+                    totalComplexity: 10
+                totalScanned: 42
+                truncated: false
+        "400":
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Complexity Metrics]
+      summary: Get complexity metrics (POST)
+      operationId: getComplexityMetricsPost
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                file_path:
+                  type: string
+                kind:
+                  type: string
+                  enum: [function, class, file]
+                language:
+                  type: string
+                  enum: [python, typescript]
+                sort_by:
+                  type: string
+                  enum: [fan_in, fan_out, depth, total]
+                  default: total
+                max_results:
+                  type: integer
+                  default: 100
+      responses:
+        "200":
+          description: Complexity metrics computed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplexityMetricsResponse"
+
+  /api/v1/mcp/change-risk:
+    get:
+      tags: [Change Risk]
+      summary: Get change risk
+      description: |
+        Predicts which tests should run and which areas are highest risk
+        given a set of changed files. Aggregates impact analysis across multiple files.
+      operationId: getChangeRisk
+      parameters:
+        - name: changed_files
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Comma-separated file paths
+        - name: max_depth
+          in: query
+          schema:
+            type: integer
+            default: 3
+            minimum: 1
+            maximum: 5
+        - name: max_files
+          in: query
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Change risk analysis complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeRiskResponse"
+              example:
+                changedFiles: ["backend/app/database.py"]
+                aggregateRiskScore: 0.72
+                affectedFiles:
+                  - filePath: backend/app/main.py
+                    depth: 1
+                    impactType: direct
+                    riskContribution: 1.0
+                suggestedTestFiles: ["backend/tests/test_database.py"]
+                hotspotOverlap: []
+                truncated: false
+        "400":
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Change Risk]
+      summary: Get change risk (POST)
+      operationId: getChangeRiskPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [changed_files]
+              properties:
+                changed_files:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+                  maxItems: 50
+                max_depth:
+                  type: integer
+                  default: 3
+                max_files:
+                  type: integer
+                  default: 100
+            example:
+              changed_files: ["backend/app/database.py", "backend/app/models/user.py"]
+              max_depth: 3
+              max_files: 100
+      responses:
+        "200":
+          description: Change risk analysis complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeRiskResponse"
+
+  /api/v1/mcp/events:
+    get:
+      tags: [SSE Events]
+      summary: SSE event stream
+      description: |
+        Server-Sent Events stream for real-time file change notifications.
+        Events: connected, file-change, indexing-progress, indexing-complete, keepalive.
+        Also available at legacy path /api/mcp/events (no redirect for SSE compatibility).
+      operationId: getSSEEvents
+      responses:
+        "200":
+          description: SSE stream established
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Event types:
+                  - connected: Initial connection confirmation
+                  - file-change: File created/updated/deleted with cluster info
+                  - indexing-progress: Current/total file indexing progress
+                  - indexing-complete: Indexing finished with file count
+                  - keepalive: Periodic heartbeat (every 30s)
+
+components:
+  schemas:
+    Node:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "Unique node ID (e.g., file:backend/app/main.py)"
+        type:
+          type: string
+          enum: [file, module, function, class, variable, external]
+          description: Node kind (renamed from 'kind' for frontend compatibility)
+        label:
+          type: string
+          description: Human-readable label
+        filePath:
+          type: string
+          description: Source file path
+        qualifiedName:
+          type: string
+          description: Fully qualified name
+        metadata:
+          type: object
+          properties:
+            language:
+              type: string
+              enum: [python, typescript]
+            rangeStart:
+              $ref: "#/components/schemas/Position"
+            rangeEnd:
+              $ref: "#/components/schemas/Position"
+
+    Position:
+      type: object
+      properties:
+        line:
+          type: integer
+        column:
+          type: integer
+
+    Edge:
+      type: object
+      properties:
+        source:
+          type: string
+          description: Source node ID
+        target:
+          type: string
+          description: Target node ID
+        type:
+          type: string
+          enum: [imports, defines, calls, instantiates, reads, writes, references, exports, inherits]
+        metadata:
+          type: object
+          properties:
+            weight:
+              type: number
+              description: Confidence score (0.0-1.0)
+            filePath:
+              type: string
+
+    Cluster:
+      type: object
+      properties:
+        id:
+          type: string
+        path:
+          type: string
+        label:
+          type: string
+        color:
+          type: string
+          description: "Hex color (e.g., #4A90E2)"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+        code:
+          type: string
+          enum: [TIMEOUT, INVALID_PARAMS, NOT_FOUND]
+        retryable:
+          type: boolean
+
+    GraphExportResponse:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/Node"
+              - type: object
+                properties:
+                  lat:
+                    type: number
+                  lng:
+                    type: number
+                  clusterId:
+                    type: string
+        edges:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/Edge"
+              - type: object
+                properties:
+                  isCrossCluster:
+                    type: boolean
+        meta:
+          type: object
+          properties:
+            nodeCount:
+              type: integer
+            edgeCount:
+              type: integer
+        clusterMeta:
+          type: array
+          items:
+            $ref: "#/components/schemas/Cluster"
+
+    FunctionContextResponse:
+      type: object
+      properties:
+        centerNode:
+          $ref: "#/components/schemas/Node"
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Node"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/Edge"
+        relatedFiles:
+          type: array
+          items:
+            type: string
+        truncated:
+          type: boolean
+
+    FileDependentsResponse:
+      type: object
+      properties:
+        files:
+          type: array
+          items:
+            type: string
+        dependencies:
+          type: array
+          items:
+            type: object
+            properties:
+              filePath:
+                type: string
+              dependencyType:
+                type: string
+              metadata:
+                type: object
+                properties:
+                  depth:
+                    type: integer
+        summary:
+          type: object
+
+    SymbolReferencesResponse:
+      type: object
+      properties:
+        symbol:
+          $ref: "#/components/schemas/Node"
+        references:
+          type: array
+          items:
+            type: object
+            properties:
+              filePath:
+                type: string
+              line:
+                type: integer
+              column:
+                type: integer
+              referenceType:
+                type: string
+                enum: [read, write, call]
+              context:
+                type: string
+        truncated:
+          type: boolean
+
+    CallersResponse:
+      type: object
+      properties:
+        target:
+          $ref: "#/components/schemas/Node"
+        callers:
+          type: array
+          items:
+            type: object
+            properties:
+              node:
+                $ref: "#/components/schemas/Node"
+              depth:
+                type: integer
+              callEdge:
+                $ref: "#/components/schemas/Edge"
+        truncated:
+          type: boolean
+
+    CallChainResponse:
+      type: object
+      properties:
+        root:
+          $ref: "#/components/schemas/Node"
+        chain:
+          type: object
+          properties:
+            nodes:
+              type: array
+              items:
+                $ref: "#/components/schemas/Node"
+            edges:
+              type: array
+              items:
+                $ref: "#/components/schemas/Edge"
+        truncated:
+          type: boolean
+
+    DeadCodeResponse:
+      type: object
+      properties:
+        deadSymbols:
+          type: array
+          items:
+            type: object
+            properties:
+              node:
+                $ref: "#/components/schemas/Node"
+              definedIn:
+                type: string
+        totalScanned:
+          type: integer
+        truncated:
+          type: boolean
+
+    HotspotsResponse:
+      type: object
+      properties:
+        hotspots:
+          type: array
+          items:
+            type: object
+            properties:
+              node:
+                $ref: "#/components/schemas/Node"
+              fanIn:
+                type: integer
+              edgeTypes:
+                type: object
+                additionalProperties:
+                  type: integer
+        totalSymbolsScanned:
+          type: integer
+        truncated:
+          type: boolean
+
+    ImpactAnalysisResponse:
+      type: object
+      properties:
+        sourceFile:
+          type: string
+        affectedFiles:
+          type: array
+          items:
+            type: object
+            properties:
+              filePath:
+                type: string
+              depth:
+                type: integer
+              impactType:
+                type: string
+                enum: [direct, transitive]
+        affectedSymbols:
+          type: array
+          items:
+            $ref: "#/components/schemas/Node"
+        riskScore:
+          type: number
+          minimum: 0
+          maximum: 1
+        suggestedTestFiles:
+          type: array
+          items:
+            type: string
+        truncated:
+          type: boolean
+
+    ModuleCouplingResponse:
+      type: object
+      properties:
+        filePathA:
+          type: string
+        filePathB:
+          type: string
+        sharedImports:
+          type: array
+          items:
+            type: string
+        sharedSymbols:
+          type: array
+          items:
+            type: string
+        directEdges:
+          type: integer
+        transitiveEdges:
+          type: integer
+        couplingScore:
+          type: number
+        truncated:
+          type: boolean
+
+    ClassHierarchyResponse:
+      type: object
+      properties:
+        root:
+          $ref: "#/components/schemas/Node"
+        ancestors:
+          type: array
+          items:
+            $ref: "#/components/schemas/Node"
+        descendants:
+          type: array
+          items:
+            $ref: "#/components/schemas/Node"
+        hierarchy:
+          type: object
+          properties:
+            nodes:
+              type: array
+              items:
+                $ref: "#/components/schemas/Node"
+            edges:
+              type: array
+              items:
+                $ref: "#/components/schemas/Edge"
+        truncated:
+          type: boolean
+
+    SearchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/Node"
+        totalMatches:
+          type: integer
+        truncated:
+          type: boolean
+
+    CircularDepsResponse:
+      type: object
+      properties:
+        cycles:
+          type: array
+          items:
+            type: object
+            properties:
+              chain:
+                type: array
+                items:
+                  type: string
+              length:
+                type: integer
+        totalFilesScanned:
+          type: integer
+        truncated:
+          type: boolean
+
+    ComplexityMetricsResponse:
+      type: object
+      properties:
+        metrics:
+          type: array
+          items:
+            type: object
+            properties:
+              node:
+                $ref: "#/components/schemas/Node"
+              fanIn:
+                type: integer
+              fanOut:
+                type: integer
+              maxDepth:
+                type: integer
+              totalComplexity:
+                type: integer
+                description: "fanIn + fanOut + maxDepth"
+        totalScanned:
+          type: integer
+        truncated:
+          type: boolean
+
+    ChangeRiskResponse:
+      type: object
+      properties:
+        changedFiles:
+          type: array
+          items:
+            type: string
+        aggregateRiskScore:
+          type: number
+          minimum: 0
+          maximum: 1
+        affectedFiles:
+          type: array
+          items:
+            type: object
+            properties:
+              filePath:
+                type: string
+              depth:
+                type: integer
+              impactType:
+                type: string
+                enum: [direct, transitive]
+              riskContribution:
+                type: number
+        suggestedTestFiles:
+          type: array
+          items:
+            type: string
+        hotspotOverlap:
+          type: array
+          items:
+            type: object
+            properties:
+              node:
+                $ref: "#/components/schemas/Node"
+              fanIn:
+                type: integer
+        truncated:
+          type: boolean
