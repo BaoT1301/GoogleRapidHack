@@ -11,6 +11,40 @@ HTTPS and holds **no database or account secrets**.
 
 ---
 
+## What it does
+
+You describe a feature in plain English; an **Architect** (Gemini, via a Socratic
+clarify-then-plan loop) turns it into a multi-step plan; that plan becomes a
+**visual node graph** on a canvas. Hit Run, and each node spawns a **real AI
+coding CLI** in its own isolated git worktree — you watch their terminals stream
+live, side by side.
+
+Key capabilities:
+
+- **Visual orchestration** — drag-and-wire a graph of `execute`, `review`, `doc`,
+  `gate`, `loop`, `plan`, and `context` nodes; flow edges set order, data edges
+  pass one node's output into another's prompt.
+- **Real agents, isolated** — every node runs an actual CLI (Claude Code / Gemini
+  / Codex / Kiro) in a dedicated git worktree + branch, so agents never clobber
+  each other.
+- **Live streaming** — per-node terminals stream over SSE in real time; the canvas
+  recolors as nodes succeed/fail.
+- **Gates & loops** — converge multiple branches behind an `all-of`/`any-of` gate;
+  re-run a sub-graph until it passes (capped iterations).
+- **Automatic merge-back** — successful branches merge into the base branch in
+  dependency order; a merge conflict auto-spawns an `integration_reviewer` agent
+  to resolve it.
+- **Spawn-a-fixer** — lasso failing nodes and spin up a child graph to fix them.
+- **Per-node model & persona** — pick the CLI, model, and persona per node;
+  read-only `review` and doc-scoped `doc` nodes are guardrail-enforced.
+- **Codebase-aware** — an optional MCP context graph (tree-sitter AST) and a
+  semantic knowledge base ground the agents in your real code.
+
+Secure by design: the downloadable client holds **no DB or account secrets** —
+all data flows through the cloud Auth/BFF over the user's own login.
+
+---
+
 ## What's in here
 
 ```
@@ -39,9 +73,13 @@ services/mcp-context-ui/       Visualization UI for the context manager.
 
 ```bash
 cp .env.example .env.orchestrator     # at the repo root
-# then edit .env.orchestrator — fill in BFF_URL, LLM_API_URL, the Clerk
-# publishable key, and LLM_SERVICE_TOKEN (see judge notes for the demo value).
 ```
+
+`.env.example` already contains the public endpoints (`BFF_URL`, `LLM_API_URL`)
+and the Clerk publishable key, so the **only** value you must add is
+`LLM_SERVICE_TOKEN` — get the demo value from the submission's private judge
+notes and paste it into `.env.orchestrator`. That file is gitignored, so your
+token never gets committed. Everything else works out of the box.
 
 ### 2. Build the shared data layer FIRST
 
@@ -100,3 +138,9 @@ cd services/orchestrator && npm test     # vitest
 
 Some DB-integration tests expect a local MongoDB and will fail without one — that
 is expected for a client-only checkout, not a regression.
+
+---
+
+## License
+
+Released under the [MIT License](./LICENSE) — an OSI-approved open-source license.
